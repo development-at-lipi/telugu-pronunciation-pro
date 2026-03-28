@@ -4,6 +4,7 @@ Production-grade Speech-to-Text engines for Telugu.
 Engine priority:
   1. Sarvam AI  (saarika:v2.5)  — best Telugu quality, purpose-built
   2. Google Cloud STT (Chirp v2) — enterprise fallback
+  3. Free Google (SpeechRecognition) — dev/testing only, no API key needed
 
 Each engine returns a list of STTResult objects.
 """
@@ -294,6 +295,125 @@ class GoogleCloudEngine:
             )
 
 
+# ─── Free Google Engine (dev/testing fallback) ──────────────────
+
+class FreeGoogleEngine:
+    """
+    Uses the SpeechRecognition library's free (unofficial) Google API.
+    No API key needed — works out of the box for development/testing.
+
+    ⚠️  NOT for production:
+      - Unofficial, undocumented endpoint
+      - Can be rate-limited or shut down by Google
+      - Lower quality than Sarvam AI
+
+    Requires: pip install SpeechRecognition pydub
+    Also requires: ffmpeg (for WebM → WAV conversion)
+    """
+
+    NAME = "free-google"
+
+    @property
+    def available(self) -> bool:
+        try:
+            import speech_recognition  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    def recognize(self, audio_bytes: bytes, filename: str = "audio.webm") -> RecognitionResult:
+        if not self.available:
+            return RecognitionResult(error="SpeechRecognition not installed", engine_name=self.NAME)
+
+        import speech_recognition as sr
+        from pydub import AudioSegment
+        from pydub.silence import detect_nonsilent
+
+        start = time.time()
+
+        try:
+            # Convert WebM → WAV
+            audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+
+            # Gentle silence trim
+            nonsilent = detect_nonsilent(audio, min_silence_len=200, silence_thresh=-50)
+            if nonsilent:
+                s = max(0, nonsilent[0][0] - 200)
+                e = min(len(audio), nonsilent[-1][1] + 200)
+                audio = audio[s:e]
+
+            # Ensure min 1 second + 500ms padding
+            if len(audio) < 1000:
+                audio = AudioSegment.silent(duration=200) + audio + AudioSegment.silent(duration=200)
+            pad = AudioSegment.silent(duration=500, frame_rate=16000)
+            audio = pad + audio + pad
+
+            wav_buf = io.BytesIO()
+            audio.export(wav_buf, format="wav")
+            wav_buf.seek(0)
+
+            recognizer = sr.Recognizer()
+            recognizer.energy_threshold = 150
+            recognizer.dynamic_energy_threshold = False
+
+            with sr.AudioFile(wav_buf) as source:
+                audio_data = recognizer.record(source)
+
+            results = []
+
+            # Pass 1: Telugu
+            try:
+                all_res = recognizer.recognize_google(audio_data, language="te-IN", show_all=True)
+                if all_res and "alternative" in all_res:
+                    for alt in all_res["alternative"]:
+                        t = alt.get("transcript", "").strip()
+                        if t:
+                            results.append(STTResult(
+                                text=t,
+                                confidence=alt.get("confidence", 0.5),
+                                engine=self.NAME,
+                            ))
+            except sr.UnknownValueError:
+                pass
+
+            # Pass 2: Indian English (catches romanised output)
+            try:
+                en_res = recognizer.recognize_google(audio_data, language="en-IN", show_all=True)
+                if en_res and "alternative" in en_res:
+                    existing = {r.text.lower() for r in results}
+                    for alt in en_res["alternative"]:
+                        t = alt.get("transcript", "").strip()
+                        if t and t.lower() not in existing:
+                            results.append(STTResult(
+                                text=t,
+                                confidence=alt.get("confidence", 0.4),
+                                engine=f"{self.NAME}-en",
+                            ))
+            except sr.UnknownValueError:
+                pass
+
+            latency = int((time.time() - start) * 1000)
+
+            if not results:
+                return RecognitionResult(
+                    error="Could not recognise speech. Speak louder and hold for 1–2 seconds.",
+                    engine_name=self.NAME,
+                    latency_ms=latency,
+                )
+
+            logger.info("FreeGoogle recognized: '%s' (%d ms)", results[0].text, latency)
+            return RecognitionResult(results=results, engine_name=self.NAME, latency_ms=latency)
+
+        except Exception as e:
+            logger.error("FreeGoogle error: %s", e)
+            return RecognitionResult(
+                error=f"Recognition failed: {e}",
+                engine_name=self.NAME,
+                latency_ms=int((time.time() - start) * 1000),
+            )
+
+
 # ─── Multi-Engine Orchestrator ──────────────────────────────────
 
 class STTOrchestrator:
@@ -317,10 +437,22 @@ class STTOrchestrator:
             self.engines.append(google)
             logger.info("STT engine registered: Google Cloud (Chirp v2)")
 
+        # Dev fallback — always available if SpeechRecognition is installed
+        free = FreeGoogleEngine()
+        if free.available:
+            self.engines.append(free)
+            if len(self.engines) == 1:
+                logger.warning(
+                    "Running with FREE Google engine only (dev mode). "
+                    "For production, set SARVAM_API_KEY."
+                )
+            else:
+                logger.info("STT engine registered: Free Google (dev fallback)")
+
         if not self.engines:
-            logger.warning(
-                "No STT engines configured! Set SARVAM_API_KEY or "
-                "GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT"
+            logger.error(
+                "No STT engines available! Install SpeechRecognition + pydub, "
+                "or set SARVAM_API_KEY."
             )
 
     def recognize(self, audio_bytes: bytes, filename: str = "audio.webm") -> RecognitionResult:
