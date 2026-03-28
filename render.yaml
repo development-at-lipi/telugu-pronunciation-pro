@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: telugu-pronunciation-pro
+    runtime: python
+    buildCommand: bash build.sh
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --timeout 60
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false
+    plan: free

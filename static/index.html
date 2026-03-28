@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="te">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telugu Pronunciation Checker</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            color: #fff;
+        }
+
+        .container { max-width: 860px; margin: 0 auto; padding: 20px; }
+
+        h1 {
+            text-align: center;
+            font-size: 2rem;
+            margin: 20px 0 6px;
+            background: linear-gradient(90deg, #f093fb, #f5576c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { text-align: center; color: #aaa; margin-bottom: 28px; font-size: .95rem; }
+
+        /* ── Tabs ─────────────────────────────────────────────── */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 22px;
+        }
+        .tab {
+            padding: 9px 20px;
+            border: 2px solid #555;
+            border-radius: 25px;
+            background: transparent;
+            color: #ccc;
+            cursor: pointer;
+            font-size: .95rem;
+            transition: all .3s;
+        }
+        .tab:hover { border-color: #f093fb; color: #f093fb; }
+        .tab.active {
+            background: linear-gradient(90deg, #f093fb, #f5576c);
+            border-color: transparent;
+            color: #fff;
+        }
+
+        /* ── Letter grid ──────────────────────────────────────── */
+        .letter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+        .letter-card {
+            aspect-ratio: 1;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,.08);
+            border: 2px solid rgba(255,255,255,.1);
+            border-radius: 12px;
+            font-size: 1.6rem;
+            cursor: pointer;
+            transition: all .3s;
+        }
+        .letter-card:hover  { background: rgba(255,255,255,.15); border-color: #f093fb; transform: scale(1.05); }
+        .letter-card.selected { background: rgba(240,147,251,.2); border-color: #f093fb; box-shadow: 0 0 15px rgba(240,147,251,.3); }
+        .letter-card.passed   { border-color: #00e676; background: rgba(0,230,118,.15); }
+
+        .letter-grid.words-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+        .letter-grid.words-grid .letter-card { aspect-ratio: auto; padding: 14px 10px; font-size: 1.2rem; }
+
+        /* ── Progress ─────────────────────────────────────────── */
+        .progress-section { text-align: center; margin: 10px 0 22px; color: #aaa; }
+        .progress-bar { width: 100%; height: 6px; background: rgba(255,255,255,.1); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg,#f093fb,#f5576c); border-radius: 3px; transition: width .5s ease; }
+
+        /* ── Practice panel (shared) ──────────────────────────── */
+        .practice-section {
+            background: rgba(255,255,255,.05);
+            border-radius: 20px;
+            padding: 28px;
+            text-align: center;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .practice-section.visible { display: block; }
+        .instruction { color: #aaa; margin-bottom: 16px; font-size: 1.05rem; }
+        .current-letter { font-size: 5rem; margin: 16px 0; color: #f093fb; line-height: 1.1; }
+        .current-letter.word-mode  { font-size: 2.5rem; }
+        .current-letter.custom-mode { font-size: 3rem; min-height: 80px; letter-spacing: 4px; }
+
+        /* Record button */
+        .record-btn {
+            width: 78px; height: 78px;
+            border-radius: 50%;
+            border: 4px solid #f5576c;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            margin: 18px auto;
+            display: flex; align-items: center; justify-content: center;
+            transition: all .3s;
+        }
+        .record-btn::before {
+            content: '';
+            width: 28px; height: 28px;
+            background: #f5576c;
+            border-radius: 50%;
+            transition: all .3s;
+        }
+        .record-btn.recording { border-color: #ff1744; animation: pulse 1.5s infinite; }
+        .record-btn.recording::before { width: 22px; height: 22px; border-radius: 4px; background: #ff1744; }
+        .record-btn:hover { transform: scale(1.05); }
+        .record-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+        @keyframes pulse {
+            0%   { box-shadow: 0 0 0 0 rgba(255,23,68,.4); }
+            70%  { box-shadow: 0 0 0 20px rgba(255,23,68,0); }
+            100% { box-shadow: 0 0 0 0 rgba(255,23,68,0); }
+        }
+        .record-label { color: #aaa; margin-top: 6px; font-size: .9rem; }
+
+        /* Status / result */
+        .status { margin: 14px 0; font-size: 1rem; min-height: 22px; }
+        .status.processing { color: #ffc107; }
+
+        .result-box { margin-top: 18px; padding: 18px; border-radius: 15px; display: none; }
+        .result-box.visible { display: block; }
+        .result-box.pass { background: rgba(0,230,118,.1); border: 2px solid #00e676; }
+        .result-box.fail { background: rgba(255,82,82,.1); border: 2px solid #ff5252; }
+        .result-icon { font-size: 2.8rem; margin-bottom: 8px; }
+        .result-text { font-size: 1.25rem; font-weight: bold; }
+        .result-detail { color: #aaa; margin-top: 8px; font-size: .9rem; }
+        .score-bar { width: 100%; height: 8px; background: rgba(255,255,255,.1); border-radius: 4px; margin-top: 14px; overflow: hidden; }
+        .score-fill { height: 100%; border-radius: 4px; transition: width .5s ease; }
+        .score-fill.good { background: linear-gradient(90deg,#00e676,#69f0ae); }
+        .score-fill.ok   { background: linear-gradient(90deg,#ffc107,#ffca28); }
+        .score-fill.bad  { background: linear-gradient(90deg,#ff5252,#ff8a80); }
+        .retry-hint { color: #888; font-size: .83rem; margin-top: 10px; }
+
+        .next-btn {
+            margin-top: 14px;
+            padding: 10px 28px;
+            border: none; border-radius: 25px;
+            background: linear-gradient(90deg,#f093fb,#f5576c);
+            color: #fff; font-size: 1rem; cursor: pointer;
+            transition: all .3s; display: none;
+        }
+        .next-btn.visible { display: inline-block; }
+        .next-btn:hover { transform: scale(1.05); box-shadow: 0 4px 15px rgba(240,147,251,.4); }
+
+        .spinner {
+            display: inline-block;
+            width: 18px; height: 18px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-top: 3px solid #ffc107;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle; margin-right: 7px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── CUSTOM TAB ───────────────────────────────────────── */
+        #customSection { display: none; }
+        #customSection.visible { display: block; }
+
+        .custom-display-box {
+            background: rgba(255,255,255,.06);
+            border: 2px solid rgba(240,147,251,.3);
+            border-radius: 16px;
+            padding: 18px 24px;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+        .custom-display-label { color: #aaa; font-size: .85rem; margin-bottom: 8px; }
+        .custom-display-text {
+            font-size: 3.5rem;
+            min-height: 80px;
+            color: #f093fb;
+            letter-spacing: 6px;
+            word-break: break-all;
+            line-height: 1.2;
+        }
+        .custom-display-text.empty { color: rgba(255,255,255,.2); font-size: 1.2rem; letter-spacing: 0; }
+
+        .custom-hint { color: #777; font-size: .8rem; margin-top: 6px; }
+
+        /* Telugu virtual keyboard */
+        .vkb-section {
+            background: rgba(255,255,255,.04);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 18px;
+        }
+        .vkb-group-label {
+            color: #888;
+            font-size: .75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 10px 0 6px;
+        }
+        .vkb-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 4px;
+        }
+        .vkb-key {
+            min-width: 38px;
+            padding: 7px 6px;
+            background: rgba(255,255,255,.09);
+            border: 1px solid rgba(255,255,255,.12);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 1.25rem;
+            cursor: pointer;
+            text-align: center;
+            transition: all .2s;
+            user-select: none;
+        }
+        .vkb-key:hover  { background: rgba(240,147,251,.25); border-color: #f093fb; transform: translateY(-1px); }
+        .vkb-key:active { transform: translateY(0); background: rgba(240,147,251,.4); }
+        .vkb-key.matra  { min-width: 32px; font-size: 1.1rem; color: #f093fb; }
+        .vkb-key.special {
+            font-size: .8rem;
+            padding: 7px 12px;
+            background: rgba(255,82,82,.15);
+            border-color: rgba(255,82,82,.3);
+            color: #ff8a80;
+        }
+        .vkb-key.special:hover { background: rgba(255,82,82,.3); }
+        .vkb-key.space-key {
+            flex: 1;
+            font-size: .8rem;
+            background: rgba(255,255,255,.06);
+        }
+
+        /* Check pronunciation button */
+        .check-btn {
+            width: 100%;
+            padding: 14px;
+            border: none; border-radius: 14px;
+            background: linear-gradient(90deg,#f093fb,#f5576c);
+            color: #fff; font-size: 1.1rem; font-weight: 600;
+            cursor: pointer; transition: all .3s;
+            margin-top: 4px;
+        }
+        .check-btn:hover   { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(240,147,251,.4); }
+        .check-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* Custom result panel */
+        #customPractice { margin-top: 18px; }
+
+        @media (max-width: 600px) {
+            .letter-grid { grid-template-columns: repeat(auto-fill, minmax(54px,1fr)); gap: 7px; }
+            .letter-card { font-size: 1.3rem; }
+            .current-letter { font-size: 3.5rem; }
+            h1 { font-size: 1.5rem; }
+            .vkb-key { min-width: 32px; font-size: 1.1rem; padding: 6px 5px; }
+            .custom-display-text { font-size: 2.5rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Telugu Pronunciation Checker</h1>
+    <p class="subtitle">Pick a letter from the grid — or write your own and check pronunciation</p>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" data-category="vowels">Vowels (అచ్చులు)</button>
+        <button class="tab" data-category="consonants">Consonants (హల్లులు)</button>
+        <button class="tab" data-category="words">Words (పదాలు)</button>
+        <button class="tab" data-category="custom">✍️ Write Your Own</button>
+    </div>
+
+    <!-- ── GRID (vowels / consonants / words) ── -->
+    <div id="gridWrapper">
+        <div id="letterGrid" class="letter-grid"></div>
+        <div class="progress-section">
+            <span id="progressText">0 / 0 completed</span>
+            <div class="progress-bar"><div id="progressFill" class="progress-fill" style="width:0%"></div></div>
+        </div>
+    </div>
+
+    <!-- ── PRACTICE PANEL (grid mode) ── -->
+    <div id="practiceSection" class="practice-section">
+        <p class="instruction">Pronounce this clearly:</p>
+        <div id="currentLetter" class="current-letter"></div>
+        <button id="recordBtn" class="record-btn" title="Tap to record"></button>
+        <p id="recordLabel" class="record-label">Tap to record</p>
+        <p id="status" class="status"></p>
+        <div id="resultBox" class="result-box">
+            <div id="resultIcon" class="result-icon"></div>
+            <div id="resultText" class="result-text"></div>
+            <div id="resultDetail" class="result-detail"></div>
+            <div class="score-bar"><div id="scoreFill" class="score-fill" style="width:0%"></div></div>
+            <p id="retryHint" class="retry-hint"></p>
+        </div>
+        <button id="nextBtn" class="next-btn" onclick="goToNext()">Next →</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         CUSTOM TAB
+    ════════════════════════════════════════════════════════════ -->
+    <div id="customSection">
+
+        <!-- Display box -->
+        <div class="custom-display-box">
+            <div class="custom-display-label">Your Telugu text</div>
+            <div id="customDisplayText" class="custom-display-text empty">
+                Type using the keyboard below…
+            </div>
+            <div class="custom-hint">Tap letters → then tap "Check Pronunciation"</div>
+        </div>
+
+        <!-- Virtual keyboard -->
+        <div class="vkb-section">
+
+            <div class="vkb-group-label">Vowels — అచ్చులు</div>
+            <div class="vkb-row" id="vkbVowels"></div>
+
+            <div class="vkb-group-label">Consonants — హల్లులు</div>
+            <div class="vkb-row" id="vkbConsonants"></div>
+
+            <div class="vkb-group-label">Vowel Signs (Matras) — గుణింతాలు</div>
+            <div class="vkb-row" id="vkbMatras"></div>
+
+            <div class="vkb-group-label">Actions</div>
+            <div class="vkb-row">
+                <button class="vkb-key special" onclick="vkbDelete()">⌫ Delete</button>
+                <button class="vkb-key space-key" onclick="vkbType(' ')">Space</button>
+                <button class="vkb-key special" onclick="vkbClear()">✕ Clear</button>
+            </div>
+        </div>
+
+        <!-- Check button -->
+        <button id="checkBtn" class="check-btn" onclick="startCustomCheck()" disabled>
+            🎙️ Check Pronunciation
+        </button>
+
+        <!-- Custom practice result (shared record UI) -->
+        <div id="customPractice">
+            <button id="customRecordBtn" class="record-btn" title="Tap to record"
+                    style="display:none;margin-top:20px"></button>
+            <p id="customRecordLabel" class="record-label" style="display:none"></p>
+            <p id="customStatus" class="status"></p>
+            <div id="customResultBox" class="result-box">
+                <div id="customResultIcon" class="result-icon"></div>
+                <div id="customResultText" class="result-text"></div>
+                <div id="customResultDetail" class="result-detail"></div>
+                <div class="score-bar"><div id="customScoreFill" class="score-fill" style="width:0%"></div></div>
+                <p id="customRetryHint" class="retry-hint"></p>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /container -->
+
+<script>
+// ──────────────────────────────────────────────────────────────────
+// VIRTUAL KEYBOARD DATA
+// ──────────────────────────────────────────────────────────────────
+const VKB = {
+    vowels: [
+        "అ","ఆ","ఇ","ఈ","ఉ","ఊ","ఋ","ౠ",
+        "ఎ","ఏ","ఐ","ఒ","ఓ","ఔ","అం","అః"
+    ],
+    consonants: [
+        "క","ఖ","గ","ఘ","ఙ",
+        "చ","ఛ","జ","ఝ","ఞ",
+        "ట","ఠ","డ","ఢ","ణ",
+        "త","థ","ద","ధ","న",
+        "ప","ఫ","బ","భ","మ",
+        "య","ర","ల","వ","శ",
+        "ష","స","హ","ళ","క్ష","ఱ"
+    ],
+    // Matras attach to the previous consonant
+    matras: [
+        { display: "ా",  code: "\u0C3E" },
+        { display: "ి",  code: "\u0C3F" },
+        { display: "ీ",  code: "\u0C40" },
+        { display: "ు",  code: "\u0C41" },
+        { display: "ూ",  code: "\u0C42" },
+        { display: "ృ",  code: "\u0C43" },
+        { display: "ె",  code: "\u0C46" },
+        { display: "ే",  code: "\u0C47" },
+        { display: "ై",  code: "\u0C48" },
+        { display: "ొ",  code: "\u0C4A" },
+        { display: "ో",  code: "\u0C4B" },
+        { display: "ౌ",  code: "\u0C4C" },
+        { display: "ం",  code: "\u0C02" },
+        { display: "ః",  code: "\u0C03" },
+        { display: "్",  code: "\u0C4D" },   // halant (virama)
+    ]
+};
+
+// Build virtual keyboard
+function buildVKB() {
+    // Vowels
+    const vr = document.getElementById('vkbVowels');
+    VKB.vowels.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.className = 'vkb-key';
+        btn.textContent = ch;
+        btn.onclick = () => vkbType(ch);
+        vr.appendChild(btn);
+    });
+
+    // Consonants
+    const cr = document.getElementById('vkbConsonants');
+    VKB.consonants.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.className = 'vkb-key';
+        btn.textContent = ch;
+        btn.onclick = () => vkbType(ch);
+        cr.appendChild(btn);
+    });
+
+    // Matras — show "క + matra" as preview
+    const mr = document.getElementById('vkbMatras');
+    VKB.matras.forEach(m => {
+        const btn = document.createElement('button');
+        btn.className = 'vkb-key matra';
+        btn.title = `Matra: క${m.code}`;
+        btn.innerHTML = `<span style="color:#888;font-size:.7em">క</span>${m.display}`;
+        btn.onclick = () => vkbType(m.code);
+        mr.appendChild(btn);
+    });
+}
+
+// ──────────────────────────────────────────────────────────────────
+// CUSTOM TEXT BUFFER
+// ──────────────────────────────────────────────────────────────────
+let customText = '';
+
+function vkbType(ch) {
+    customText += ch;
+    updateCustomDisplay();
+}
+
+function vkbDelete() {
+    // Remove last code point (handles multi-byte Telugu chars)
+    if (!customText) return;
+    const arr = [...customText];
+    arr.pop();
+    customText = arr.join('');
+    updateCustomDisplay();
+}
+
+function vkbClear() {
+    customText = '';
+    updateCustomDisplay();
+    hideCustomResult();
+}
+
+function updateCustomDisplay() {
+    const el = document.getElementById('customDisplayText');
+    if (customText.trim() === '') {
+        el.textContent = 'Type using the keyboard below…';
+        el.classList.add('empty');
+        document.getElementById('checkBtn').disabled = true;
+    } else {
+        el.textContent = customText;
+        el.classList.remove('empty');
+        document.getElementById('checkBtn').disabled = false;
+    }
+    hideCustomResult();
+}
+
+function hideCustomResult() {
+    document.getElementById('customResultBox').classList.remove('visible','pass','fail');
+    document.getElementById('customStatus').textContent = '';
+    document.getElementById('customRetryHint').textContent = '';
+}
+
+// ──────────────────────────────────────────────────────────────────
+// GRID MODE STATE
+// ──────────────────────────────────────────────────────────────────
+const API_BASE = '';
+let currentCategory  = 'vowels';
+let letters          = [];
+let currentIndex     = -1;
+let completedLetters = new Set();
+
+// DOM refs — grid mode
+const letterGrid     = document.getElementById('letterGrid');
+const practiceSection= document.getElementById('practiceSection');
+const currentLetterEl= document.getElementById('currentLetter');
+const recordBtn      = document.getElementById('recordBtn');
+const recordLabel    = document.getElementById('recordLabel');
+const statusEl       = document.getElementById('status');
+const resultBox      = document.getElementById('resultBox');
+const resultIcon     = document.getElementById('resultIcon');
+const resultText     = document.getElementById('resultText');
+const resultDetail   = document.getElementById('resultDetail');
+const scoreFill      = document.getElementById('scoreFill');
+const nextBtn        = document.getElementById('nextBtn');
+const progressText   = document.getElementById('progressText');
+const progressFill   = document.getElementById('progressFill');
+const retryHint      = document.getElementById('retryHint');
+
+// DOM refs — custom mode
+const customRecordBtn  = document.getElementById('customRecordBtn');
+const customRecordLabel= document.getElementById('customRecordLabel');
+const customStatus     = document.getElementById('customStatus');
+const customResultBox  = document.getElementById('customResultBox');
+const customResultIcon = document.getElementById('customResultIcon');
+const customResultText = document.getElementById('customResultText');
+const customResultDetail=document.getElementById('customResultDetail');
+const customScoreFill  = document.getElementById('customScoreFill');
+const customRetryHint  = document.getElementById('customRetryHint');
+
+// ──────────────────────────────────────────────────────────────────
+// TAB SWITCHING
+// ──────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const cat = tab.dataset.category;
+        if (cat === 'custom') {
+            showCustomTab();
+        } else {
+            showGridTab();
+            loadLetters(cat);
+        }
+    });
+});
+
+function showGridTab() {
+    document.getElementById('gridWrapper').style.display = '';
+    practiceSection.classList.remove('visible');
+    document.getElementById('customSection').classList.remove('visible');
+}
+
+function showCustomTab() {
+    document.getElementById('gridWrapper').style.display = 'none';
+    practiceSection.classList.remove('visible');
+    document.getElementById('customSection').classList.add('visible');
+}
+
+// ──────────────────────────────────────────────────────────────────
+// GRID MODE
+// ──────────────────────────────────────────────────────────────────
+async function loadLetters(category) {
+    currentCategory  = category;
+    completedLetters = new Set();
+    practiceSection.classList.remove('visible');
+    try {
+        const res  = await fetch(`${API_BASE}/api/letters?category=${category}`);
+        const data = await res.json();
+        letters = data.letters;
+        renderGrid();
+        updateProgress();
+    } catch (e) { console.error(e); }
+}
+
+function renderGrid() {
+    letterGrid.className = `letter-grid${currentCategory === 'words' ? ' words-grid' : ''}`;
+    letterGrid.innerHTML = letters.map((l, i) => {
+        let cls = 'letter-card';
+        if (i === currentIndex)       cls += ' selected';
+        if (completedLetters.has(i))  cls += ' passed';
+        return `<div class="${cls}" onclick="selectLetter(${i})">${l}</div>`;
+    }).join('');
+}
+
+function selectLetter(index) {
+    currentIndex = index;
+    currentLetterEl.textContent  = letters[index];
+    currentLetterEl.className    =
+        `current-letter${currentCategory === 'words' ? ' word-mode' : ''}`;
+
+    practiceSection.classList.add('visible');
+    resultBox.classList.remove('visible','pass','fail');
+    nextBtn.classList.remove('visible');
+    statusEl.textContent  = '';
+    retryHint.textContent = '';
+    renderGrid();
+    practiceSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+recordBtn.addEventListener('click', () => toggleRecording(
+    recordBtn, recordLabel, statusEl,
+    () => letters[currentIndex],
+    showGridResult
+));
+
+function goToNext() {
+    let next = currentIndex + 1, attempts = 0;
+    while (completedLetters.has(next % letters.length) && attempts < letters.length) {
+        next++; attempts++;
+    }
+    if (attempts >= letters.length) {
+        statusEl.textContent = '🎉 You completed all letters in this category!';
+        nextBtn.classList.remove('visible');
+        return;
+    }
+    selectLetter(next % letters.length);
+}
+
+function updateProgress() {
+    const done = completedLetters.size, total = letters.length;
+    progressText.textContent = `${done} / ${total} completed`;
+    progressFill.style.width = `${total > 0 ? (done/total)*100 : 0}%`;
+}
+
+function showGridResult(data) {
+    renderResult(data, resultBox, resultIcon, resultText, resultDetail, scoreFill, retryHint);
+    if (data.pass) {
+        completedLetters.add(currentIndex);
+        updateProgress();
+        renderGrid();
+        nextBtn.classList.add('visible');
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// CUSTOM MODE
+// ──────────────────────────────────────────────────────────────────
+function startCustomCheck() {
+    if (!customText.trim()) return;
+    customRecordBtn.style.display = 'flex';
+    customRecordLabel.style.display = 'block';
+    customRecordLabel.textContent  = 'Tap to record';
+    hideCustomResult();
+    customRecordBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+customRecordBtn.addEventListener('click', () => toggleRecording(
+    customRecordBtn, customRecordLabel, customStatus,
+    () => customText,
+    showCustomResult
+));
+
+function showCustomResult(data) {
+    renderResult(data, customResultBox, customResultIcon, customResultText,
+                 customResultDetail, customScoreFill, customRetryHint);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// SHARED RECORDING LOGIC
+// ──────────────────────────────────────────────────────────────────
+let mediaRecorder    = null;
+let audioChunks      = [];
+let isRecording      = false;
+let activeRecordBtn  = null;
+let activeRecordLabel= null;
+let activeStatusEl   = null;
+let activeGetText    = null;
+let activeShowResult = null;
+let recordTimeout    = null;
+
+function toggleRecording(btn, label, status, getText, showResult) {
+    if (isRecording) {
+        stopRecording();
+        return;
+    }
+    // Capture which panel is active
+    activeRecordBtn   = btn;
+    activeRecordLabel = label;
+    activeStatusEl    = status;
+    activeGetText     = getText;
+    activeShowResult  = showResult;
+    startRecording();
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: 1, sampleRate: 16000,
+                     echoCancellation: true, noiseSuppression: true }
+        });
+        audioChunks  = [];
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                      ? 'audio/webm;codecs=opus' : 'audio/webm'
+        });
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            verifyPronunciation(blob, activeGetText(), activeShowResult, activeStatusEl);
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        activeRecordBtn.classList.add('recording');
+        activeRecordLabel.textContent = 'Recording… Tap to stop';
+        activeStatusEl.textContent    = '';
+
+        recordTimeout = setTimeout(() => { if (isRecording) stopRecording(); }, 6000);
+    } catch (err) {
+        activeStatusEl.textContent = '⚠️ Microphone access denied. Please allow microphone.';
+        console.error(err);
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        clearTimeout(recordTimeout);
+        mediaRecorder.stop();
+        isRecording = false;
+        activeRecordBtn.classList.remove('recording');
+        activeRecordLabel.textContent = 'Tap to record';
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// API CALL
+// ──────────────────────────────────────────────────────────────────
+async function verifyPronunciation(audioBlob, expectedText, showResult, statusEl) {
+    statusEl.innerHTML = '<span class="spinner"></span> Analysing pronunciation…';
+    statusEl.className = 'status processing';
+
+    const form = new FormData();
+    form.append('audio',    audioBlob, 'recording.webm');
+    form.append('expected', expectedText);
+
+    try {
+        const res  = await fetch(`${API_BASE}/api/verify`, { method: 'POST', body: form });
+        const data = await res.json();
+        statusEl.textContent = '';
+        statusEl.className   = 'status';
+
+        if (data.error && !data.recognized) {
+            // Can't hear — show fail
+            showResult({
+                pass: false, expected: expectedText, recognized: null,
+                score: 0, reason: data.error
+            });
+            return;
+        }
+        showResult(data);
+    } catch (err) {
+        statusEl.textContent = '⚠️ Network error. Check your connection.';
+        statusEl.className   = 'status';
+        console.error(err);
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// SHARED RESULT RENDERER
+// ──────────────────────────────────────────────────────────────────
+function renderResult(data, box, icon, text, detail, fill, hint) {
+    box.classList.add('visible');
+    const score = data.score || 0;
+
+    if (data.pass) {
+        box.classList.add('pass'); box.classList.remove('fail');
+        icon.textContent = '✅';
+        text.textContent = 'PASS — Great pronunciation!';
+        hint.textContent = '';
+    } else {
+        box.classList.add('fail'); box.classList.remove('pass');
+        icon.textContent = data.recognized ? '❌' : '🔇';
+        text.textContent = data.recognized ? 'Try Again' : 'Could not hear you';
+        hint.textContent = data.recognized
+            ? 'Tip: Speak the letter slowly and hold the sound for 1–2 seconds.'
+            : 'Tip: Speak louder and closer to the microphone.';
+    }
+
+    const heard = data.recognized || 'Nothing detected';
+    detail.textContent = `Heard: "${heard}"  |  Expected: "${data.expected}"  |  Score: ${score}%`;
+    if (data.reason) detail.textContent += `  |  ${data.reason}`;
+
+    fill.style.width = `${score}%`;
+    fill.className   = `score-fill ${score >= 70 ? 'good' : score >= 40 ? 'ok' : 'bad'}`;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────────────────────────
+buildVKB();
+loadLetters('vowels');
+</script>
+</body>
+</html>
