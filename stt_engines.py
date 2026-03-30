@@ -295,6 +295,133 @@ class GoogleCloudEngine:
             )
 
 
+# ─── Google Cloud STT V1 (API Key) ──────────────────────────────
+
+class GoogleAPIKeyEngine:
+    """
+    Google Cloud Speech-to-Text V1 using a simple API key.
+
+    Much easier setup than V2 (no service account needed):
+      1. Go to https://console.cloud.google.com/apis/credentials
+      2. Create an API key
+      3. Enable "Cloud Speech-to-Text API"
+      4. Set GOOGLE_STT_API_KEY in .env
+
+    Pricing: 60 min free/month, then $0.006 per 15 seconds.
+    """
+
+    NAME = "google-stt"
+    TIMEOUT = 20
+
+    def __init__(self):
+        self.api_key = Config.GOOGLE_STT_API_KEY
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_key)
+
+    def recognize(self, audio_bytes: bytes, filename: str = "audio.webm") -> RecognitionResult:
+        if not self.available:
+            return RecognitionResult(error="Google STT API key not configured", engine_name=self.NAME)
+
+        start = time.time()
+
+        # Convert to WAV (Google V1 needs LINEAR16)
+        try:
+            from pydub import AudioSegment
+            from pydub.silence import detect_nonsilent
+
+            audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+
+            # Gentle silence trim + padding (helps single letters)
+            nonsilent = detect_nonsilent(audio, min_silence_len=200, silence_thresh=-50)
+            if nonsilent:
+                s = max(0, nonsilent[0][0] - 200)
+                e = min(len(audio), nonsilent[-1][1] + 200)
+                audio = audio[s:e]
+
+            if len(audio) < 800:
+                pad = AudioSegment.silent(duration=300, frame_rate=16000)
+                audio = pad + audio + pad
+
+            wav_buf = io.BytesIO()
+            audio.export(wav_buf, format="wav")
+            wav_bytes = wav_buf.getvalue()
+        except Exception as e:
+            logger.error("Audio conversion error: %s", e)
+            return RecognitionResult(error=f"Audio conversion failed: {e}", engine_name=self.NAME)
+
+        audio_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+
+        url = f"https://speech.googleapis.com/v1/speech:recognize?key={self.api_key}"
+
+        body = {
+            "config": {
+                "encoding": "LINEAR16",
+                "sampleRateHertz": 16000,
+                "languageCode": "te-IN",
+                "alternativeLanguageCodes": ["en-IN"],
+                "maxAlternatives": 5,
+                "enableAutomaticPunctuation": False,
+                "model": "default",
+            },
+            "audio": {
+                "content": audio_b64,
+            },
+        }
+
+        try:
+            resp = requests.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json=body,
+                timeout=self.TIMEOUT,
+            )
+
+            latency = int((time.time() - start) * 1000)
+
+            if resp.status_code != 200:
+                error_msg = resp.text[:300]
+                logger.error("Google STT API error %d: %s", resp.status_code, error_msg)
+                return RecognitionResult(
+                    error=f"Google STT API error ({resp.status_code})",
+                    engine_name=self.NAME,
+                    latency_ms=latency,
+                )
+
+            data = resp.json()
+            results = []
+
+            for result_block in data.get("results", []):
+                for alt in result_block.get("alternatives", []):
+                    text = alt.get("transcript", "").strip()
+                    if text:
+                        results.append(STTResult(
+                            text=text,
+                            confidence=alt.get("confidence", 0.7),
+                            engine=self.NAME,
+                        ))
+
+            if not results:
+                return RecognitionResult(
+                    error="No speech detected",
+                    engine_name=self.NAME,
+                    latency_ms=latency,
+                )
+
+            logger.info("Google STT recognized: '%s' (%d ms)", results[0].text, latency)
+            return RecognitionResult(results=results, engine_name=self.NAME, latency_ms=latency)
+
+        except requests.exceptions.RequestException as e:
+            logger.error("Google STT request error: %s", e)
+            return RecognitionResult(
+                error=f"Google STT request failed: {e}",
+                engine_name=self.NAME,
+                latency_ms=int((time.time() - start) * 1000),
+            )
+
+
 # ─── Free Google Engine (dev/testing fallback) ──────────────────
 
 class FreeGoogleEngine:
@@ -431,6 +558,11 @@ class STTOrchestrator:
         if sarvam.available:
             self.engines.append(sarvam)
             logger.info("STT engine registered: Sarvam AI (saarika:v2.5)")
+
+        google_key = GoogleAPIKeyEngine()
+        if google_key.available:
+            self.engines.append(google_key)
+            logger.info("STT engine registered: Google STT (API key)")
 
         google = GoogleCloudEngine()
         if google.available:
