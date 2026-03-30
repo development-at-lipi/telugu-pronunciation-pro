@@ -144,6 +144,76 @@
         .score-fill.bad  { background: linear-gradient(90deg,#ff5252,#ff8a80); }
         .retry-hint { color: #888; font-size: .83rem; margin-top: 10px; }
 
+        /* ── Analytics panel ─────────────────────────────────── */
+        .analytics-panel {
+            margin-top: 14px;
+            background: rgba(0,0,0,.25);
+            border-radius: 12px;
+            padding: 14px 16px;
+            text-align: left;
+        }
+        .analytics-title {
+            color: #aaa;
+            font-size: .75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 8px;
+        }
+        .analytics-item {
+            background: rgba(255,255,255,.05);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .analytics-label {
+            color: #777;
+            font-size: .68rem;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            margin-bottom: 3px;
+        }
+        .analytics-value {
+            font-size: .95rem;
+            font-weight: 600;
+            color: #fff;
+        }
+        .analytics-value.highlight-green { color: #69f0ae; }
+        .analytics-value.highlight-yellow { color: #ffca28; }
+        .analytics-value.highlight-red { color: #ff8a80; }
+        .match-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: .72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+        .mt-exact     { background: rgba(0,230,118,.2); color: #69f0ae; }
+        .mt-phonetic  { background: rgba(100,181,246,.2); color: #82b1ff; }
+        .mt-starts_with { background: rgba(255,193,7,.2); color: #ffca28; }
+        .mt-contains  { background: rgba(206,147,216,.2); color: #ce93d8; }
+        .mt-partial   { background: rgba(255,183,77,.2); color: #ffb74d; }
+        .mt-levenshtein { background: rgba(255,138,101,.2); color: #ff8a65; }
+        .mt-none      { background: rgba(255,82,82,.2); color: #ff8a80; }
+        .alternatives-list { margin-top: 10px; }
+        .alt-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 5px 8px;
+            background: rgba(255,255,255,.04);
+            border-radius: 6px;
+            margin-bottom: 4px;
+            font-size: .82rem;
+        }
+        .alt-text { color: #ddd; }
+        .alt-score { color: #aaa; font-size: .75rem; }
+
         .next-btn {
             margin-top: 14px;
             padding: 10px 28px;
@@ -358,6 +428,7 @@
             <div id="resultDetail" class="result-detail"></div>
             <div class="score-bar"><div id="scoreFill" class="score-fill" style="width:0%"></div></div>
             <p id="retryHint" class="retry-hint"></p>
+            <div id="analyticsPanel" class="analytics-panel" style="display:none"></div>
         </div>
         <button id="nextBtn" class="next-btn" onclick="goToNext()">Next →</button>
     </div>
@@ -413,6 +484,7 @@
                 <div id="customResultDetail" class="result-detail"></div>
                 <div class="score-bar"><div id="customScoreFill" class="score-fill" style="width:0%"></div></div>
                 <p id="customRetryHint" class="retry-hint"></p>
+                <div id="customAnalyticsPanel" class="analytics-panel" style="display:none"></div>
             </div>
         </div>
     </div>
@@ -669,7 +741,8 @@ function updateProgress() {
 }
 
 function showGridResult(data) {
-    renderResult(data, resultBox, resultIcon, resultText, resultDetail, scoreFill, retryHint);
+    const ap = document.getElementById('analyticsPanel');
+    renderResult(data, resultBox, resultIcon, resultText, resultDetail, scoreFill, retryHint, ap);
     if (data.pass) {
         completedLetters.add(currentIndex);
         updateProgress();
@@ -697,8 +770,9 @@ customRecordBtn.addEventListener('click', () => toggleRecording(
 ));
 
 function showCustomResult(data) {
+    const ap = document.getElementById('customAnalyticsPanel');
     renderResult(data, customResultBox, customResultIcon, customResultText,
-                 customResultDetail, customScoreFill, customRetryHint);
+                 customResultDetail, customScoreFill, customRetryHint, ap);
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -805,7 +879,7 @@ async function verifyPronunciation(audioBlob, expectedText, showResult, statusEl
 // ──────────────────────────────────────────────────────────────────
 // SHARED RESULT RENDERER
 // ──────────────────────────────────────────────────────────────────
-function renderResult(data, box, icon, text, detail, fill, hint) {
+function renderResult(data, box, icon, text, detail, fill, hint, analyticsPanel) {
     box.classList.add('visible');
     const score = data.score || 0;
 
@@ -831,6 +905,68 @@ function renderResult(data, box, icon, text, detail, fill, hint) {
 
     fill.style.width = `${score}%`;
     fill.className   = `score-fill ${score >= 70 ? 'good' : score >= 40 ? 'ok' : 'bad'}`;
+
+    // ── Analytics panel ───────────────────────────────────────────
+    if (analyticsPanel && data.analytics) {
+        analyticsPanel.style.display = 'block';
+        analyticsPanel.innerHTML = buildAnalyticsHTML(data);
+    }
+}
+
+function scoreColor(v) {
+    return v >= 70 ? 'highlight-green' : v >= 40 ? 'highlight-yellow' : 'highlight-red';
+}
+
+function buildAnalyticsHTML(data) {
+    const a = data.analytics;
+    const mt = a.match_type || 'none';
+
+    const metrics = [
+        { label: 'Overall Score',       value: `${data.score}%`,               cls: scoreColor(data.score) },
+        { label: 'Match Type',          value: `<span class="match-type-badge mt-${mt}">${mt}</span>`, raw: true },
+        { label: 'Levenshtein',         value: `${a.levenshtein_score}%`,       cls: scoreColor(a.levenshtein_score) },
+        { label: 'Phonetic Match',      value: a.phonetic_score ? `${a.phonetic_score}%` : '—',  cls: a.phonetic_score ? scoreColor(a.phonetic_score) : '' },
+        { label: 'Char Overlap',        value: `${a.char_overlap_pct}%`,        cls: scoreColor(a.char_overlap_pct) },
+        { label: 'Grapheme Match',      value: `${a.grapheme_match_pct}%`,      cls: scoreColor(a.grapheme_match_pct) },
+        { label: 'Graphemes Expected',  value: a.graphemes_expected,            cls: '' },
+        { label: 'Graphemes Heard',     value: a.graphemes_recognized,          cls: '' },
+        { label: 'Phonetic Alts',       value: a.phonetic_alternatives,         cls: '' },
+        { label: 'Short Text',          value: a.is_short_text ? 'Yes' : 'No',  cls: '' },
+        { label: 'Expected (norm)',     value: `"${a.expected_normalized}"`,     cls: '' },
+        { label: 'Heard (norm)',        value: `"${a.recognized_normalized || '—'}"`, cls: '' },
+    ];
+
+    const grid = metrics.map(m => `
+        <div class="analytics-item">
+            <div class="analytics-label">${m.label}</div>
+            <div class="analytics-value ${m.cls || ''}">${m.raw ? m.value : escHtml(String(m.value))}</div>
+        </div>`).join('');
+
+    let altsHtml = '';
+    if (data.alternatives && data.alternatives.length > 1) {
+        altsHtml = `
+        <div class="alternatives-list">
+            <div class="analytics-label" style="margin-top:10px">All STT Alternatives</div>
+            ${data.alternatives.map(alt => `
+                <div class="alt-item">
+                    <span class="alt-text">${escHtml(alt.text)}</span>
+                    <span class="alt-score">
+                        score ${alt.match.score}%
+                        &nbsp;·&nbsp; <span class="match-type-badge mt-${alt.match.match_type}">${alt.match.match_type}</span>
+                        &nbsp;·&nbsp; conf ${Math.round(alt.confidence * 100)}%
+                    </span>
+                </div>`).join('')}
+        </div>`;
+    }
+
+    return `
+        <div class="analytics-title">Detailed Analysis</div>
+        <div class="analytics-grid">${grid}</div>
+        ${altsHtml}`;
+}
+
+function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ──────────────────────────────────────────────────────────────────

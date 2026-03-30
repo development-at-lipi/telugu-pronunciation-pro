@@ -14,9 +14,36 @@ from typing import List
 
 @dataclass
 class MatchResult:
+    # ── Core verdict ─────────────────────────────────────────────
     match: bool
-    score: int          # 0–100
-    reason: str
+    score: int              # 0–100 overall score
+    reason: str             # human-readable reason
+
+    # ── Match type ───────────────────────────────────────────────
+    match_type: str = ""    # exact | phonetic | starts_with | contains
+                            # partial | levenshtein | none
+
+    # ── Individual check scores (all 0–100) ──────────────────────
+    exact_score: int = 0           # 100 if exact, else 0
+    phonetic_score: int = 0        # 85 if phonetic equiv matched, else 0
+    starts_with_score: int = 0     # 80 if recognised starts with expected
+    contains_score: int = 0        # score if expected inside recognised
+    partial_score: int = 0         # score if recognised inside expected
+    levenshtein_score: int = 0     # raw levenshtein similarity %
+
+    # ── Character / grapheme analytics ──────────────────────────
+    char_overlap_pct: int = 0      # shared chars / max-length chars
+    grapheme_match_pct: int = 0    # matching graphemes / total expected graphemes
+    graphemes_expected: int = 0    # number of grapheme clusters in expected
+    graphemes_recognized: int = 0  # number of grapheme clusters in recognised
+
+    # ── Normalised strings (for debugging) ──────────────────────
+    expected_normalized: str = ""
+    recognized_normalized: str = ""
+
+    # ── Context flags ────────────────────────────────────────────
+    is_short_text: bool = False    # True when expected ≤ 2 graphemes (single letter)
+    phonetic_alternatives: int = 0 # how many phonetic alts exist for this letter
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -168,47 +195,107 @@ def _levenshtein_pct(s1: str, s2: str) -> int:
 # Main comparison
 # ──────────────────────────────────────────────────────────────────
 
+def _char_overlap_pct(s1: str, s2: str) -> int:
+    """Percentage of characters from s1 that appear (in order) in s2."""
+    if not s1 or not s2:
+        return 0
+    matches = 0
+    idx = 0
+    for ch in s1:
+        while idx < len(s2) and s2[idx] != ch:
+            idx += 1
+        if idx < len(s2):
+            matches += 1
+            idx += 1
+    return int(matches / max(len(s1), len(s2)) * 100)
+
+
+def _grapheme_match_pct(exp_g: List[str], rec_g: List[str]) -> int:
+    """How many graphemes of exp appear anywhere in rec (order-independent)."""
+    if not exp_g:
+        return 0
+    rec_copy = list(rec_g)
+    matched = 0
+    for g in exp_g:
+        if g in rec_copy:
+            matched += 1
+            rec_copy.remove(g)
+    return int(matched / len(exp_g) * 100)
+
+
 def compare(expected: str, recognized: str) -> MatchResult:
     """
     Compare expected Telugu text with STT output.
     Runs 6 checks in order; first match wins.
+    Always computes full analytics regardless of which check passes.
     """
     exp = _normalize(expected)
     rec = _normalize(recognized)
 
+    # ── Pre-compute all analytics ─────────────────────────────────
+    exp_g   = _graphemes(exp)
+    rec_g   = _graphemes(rec)
+    is_short = len(exp_g) <= 2
+
+    lev_score    = _levenshtein_pct(exp, rec) if rec else 0
+    char_overlap = _char_overlap_pct(exp, rec) if rec else 0
+    g_match_pct  = _grapheme_match_pct(exp_g, rec_g) if rec else 0
+    phonetic_alts = len(PHONETIC_EQUIVALENTS.get(exp, []))
+
+    base = dict(
+        levenshtein_score    = lev_score,
+        char_overlap_pct     = char_overlap,
+        grapheme_match_pct   = g_match_pct,
+        graphemes_expected   = len(exp_g),
+        graphemes_recognized = len(rec_g),
+        expected_normalized  = exp,
+        recognized_normalized= rec,
+        is_short_text        = is_short,
+        phonetic_alternatives= phonetic_alts,
+    )
+
     if not rec:
-        return MatchResult(False, 0, "No speech detected")
+        return MatchResult(False, 0, "No speech detected", match_type="none", **base)
 
-    # 1. Exact match
+    # ── 1. Exact match ───────────────────────────────────────────
     if exp == rec:
-        return MatchResult(True, 100, "Perfect match")
+        return MatchResult(True, 100, "Perfect match",
+                           match_type="exact", exact_score=100, **base)
 
-    # 2. Phonetic equivalents (e.g. ఋ → రు, క → ka)
+    # ── 2. Phonetic equivalents ──────────────────────────────────
     for alt in PHONETIC_EQUIVALENTS.get(exp, []):
         alt_n = _normalize(alt)
         if rec == alt_n or rec.startswith(alt_n):
-            return MatchResult(True, 85, "Phonetically correct")
+            return MatchResult(True, 85, "Phonetically correct",
+                               match_type="phonetic", phonetic_score=85, **base)
 
-    # 3. Starts-with (single-letter → Google returns a word)
-    if len(_graphemes(exp)) <= 2 and rec.startswith(exp):
-        return MatchResult(True, 80, "Good pronunciation (extra syllable detected)")
+    # ── 3. Starts-with ───────────────────────────────────────────
+    if is_short and rec.startswith(exp):
+        return MatchResult(True, 80, "Good pronunciation (extra syllable detected)",
+                           match_type="starts_with", starts_with_score=80, **base)
 
-    # 4. Expected contained in recognised
+    # ── 4. Expected contained in recognised ─────────────────────
     if exp in rec:
         ratio = len(exp) / len(rec)
-        return MatchResult(True, max(int(ratio * 100), 70), "Good pronunciation")
+        s = max(int(ratio * 100), 70)
+        return MatchResult(True, s, "Good pronunciation",
+                           match_type="contains", contains_score=s, **base)
 
-    # 5. Recognised contained in expected
+    # ── 5. Recognised contained in expected ─────────────────────
     if rec in exp:
         ratio = len(rec) / len(exp)
+        s = int(ratio * 100)
         threshold = 30 if len(exp) <= 3 else 50
-        if int(ratio * 100) >= threshold:
-            return MatchResult(True, int(ratio * 100), "Partial match detected")
+        if s >= threshold:
+            return MatchResult(True, s, "Partial match detected",
+                               match_type="partial", partial_score=s, **base)
 
-    # 6. Levenshtein similarity
-    score = _levenshtein_pct(exp, rec)
+    # ── 6. Levenshtein ───────────────────────────────────────────
     threshold = 55 if len(exp) <= 3 else 60
-    if score >= threshold:
-        return MatchResult(True, score, "Close pronunciation")
+    if lev_score >= threshold:
+        return MatchResult(True, lev_score, "Close pronunciation",
+                           match_type="levenshtein", **base)
 
-    return MatchResult(False, score, f"Expected '{expected}', heard '{recognized}'")
+    return MatchResult(False, lev_score,
+                       f"Expected '{expected}', heard '{recognized}'",
+                       match_type="none", **base)

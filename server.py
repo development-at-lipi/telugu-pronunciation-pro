@@ -111,14 +111,23 @@ def verify_pronunciation():
 
     if not recognition.results:
         return jsonify({
-            "pass": False,
-            "error": recognition.error or "Could not recognise speech. Speak louder and hold for 1–2 seconds.",
-            "expected": expected_text,
-            "recognized": None,
-            "score": 0,
-            "engine": recognition.engine_name,
-            "latency_ms": recognition.latency_ms,
-            "details": [],
+            "pass":         False,
+            "score":        0,
+            "reason":       recognition.error or "Could not recognise speech. Speak louder and hold for 1–2 seconds.",
+            "error":        recognition.error,
+            "expected":     expected_text,
+            "recognized":   None,
+            "engine":       recognition.engine_name,
+            "latency_ms":   recognition.latency_ms,
+            "analytics":    {
+                "match_type": "none", "exact_score": 0, "phonetic_score": 0,
+                "starts_with_score": 0, "contains_score": 0, "partial_score": 0,
+                "levenshtein_score": 0, "char_overlap_pct": 0, "grapheme_match_pct": 0,
+                "graphemes_expected": 0, "graphemes_recognized": 0,
+                "phonetic_alternatives": 0, "is_short_text": False,
+                "expected_normalized": "", "recognized_normalized": "",
+            },
+            "alternatives": [],
         })
 
     # ── Compare each result with expected text ───────────────
@@ -138,23 +147,54 @@ def verify_pronunciation():
 
     passed = best_result["match"].match if best_result else False
 
+    m = best_result["match"] if best_result else None
+
     return jsonify({
-        "pass": passed,
-        "expected": expected_text,
+        # ── Core verdict ────────────────────────────────────────
+        "pass":       passed,
+        "score":      m.score if m else 0,
+        "reason":     m.reason if m else "No match",
+
+        # ── Inputs ──────────────────────────────────────────────
+        "expected":   expected_text,
         "recognized": best_result["recognized_text"] if best_result else None,
-        "score": best_result["match"].score if best_result else 0,
-        "reason": best_result["match"].reason if best_result else "No match",
-        "engine": recognition.engine_name,
+
+        # ── Engine metadata ─────────────────────────────────────
+        "engine":     recognition.engine_name,
         "latency_ms": recognition.latency_ms,
-        "details": [
+
+        # ── Match analytics ─────────────────────────────────────
+        "analytics": {
+            "match_type":            m.match_type            if m else "none",
+            "exact_score":           m.exact_score           if m else 0,
+            "phonetic_score":        m.phonetic_score        if m else 0,
+            "starts_with_score":     m.starts_with_score     if m else 0,
+            "contains_score":        m.contains_score        if m else 0,
+            "partial_score":         m.partial_score         if m else 0,
+            "levenshtein_score":     m.levenshtein_score     if m else 0,
+            "char_overlap_pct":      m.char_overlap_pct      if m else 0,
+            "grapheme_match_pct":    m.grapheme_match_pct    if m else 0,
+            "graphemes_expected":    m.graphemes_expected    if m else 0,
+            "graphemes_recognized":  m.graphemes_recognized  if m else 0,
+            "phonetic_alternatives": m.phonetic_alternatives if m else 0,
+            "is_short_text":         m.is_short_text         if m else False,
+            "expected_normalized":   m.expected_normalized   if m else "",
+            "recognized_normalized": m.recognized_normalized if m else "",
+        },
+
+        # ── All STT alternatives ─────────────────────────────────
+        "alternatives": [
             {
-                "text": r.text,
-                "confidence": r.confidence,
-                "engine": r.engine,
+                "text":       r.text,
+                "confidence": round(r.confidence, 3),
+                "engine":     r.engine,
                 "match": {
-                    "match": compare(expected_text, r.text).match,
-                    "score": compare(expected_text, r.text).score,
-                    "reason": compare(expected_text, r.text).reason,
+                    "pass":              compare(expected_text, r.text).match,
+                    "score":             compare(expected_text, r.text).score,
+                    "match_type":        compare(expected_text, r.text).match_type,
+                    "levenshtein_score": compare(expected_text, r.text).levenshtein_score,
+                    "phonetic_score":    compare(expected_text, r.text).phonetic_score,
+                    "grapheme_match_pct":compare(expected_text, r.text).grapheme_match_pct,
                 },
             }
             for r in recognition.results
