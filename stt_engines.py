@@ -455,16 +455,48 @@ class STTOrchestrator:
                 "or set SARVAM_API_KEY."
             )
 
-    def recognize(self, audio_bytes: bytes, filename: str = "audio.webm") -> RecognitionResult:
+    def get_engine(self, name: str):
+        """Get a specific engine by name, or None."""
+        for e in self.engines:
+            if e.NAME == name:
+                return e
+        return None
+
+    def list_engines(self) -> list[dict]:
+        """Return engine info for the /api/engines endpoint."""
+        return [
+            {"name": e.NAME, "available": e.available}
+            for e in self.engines
+        ]
+
+    def recognize(
+        self,
+        audio_bytes: bytes,
+        filename: str = "audio.webm",
+        engine_name: str | None = None,
+    ) -> RecognitionResult:
         """
-        Try each engine in priority order.
-        Returns the first successful result, or the last error.
+        Run STT recognition.
+
+        If engine_name is given, use ONLY that engine (no fallback).
+        Otherwise try each engine in priority order, falling back on failure.
         """
         if not self.engines:
             return RecognitionResult(
                 error="No STT engines configured. Please set SARVAM_API_KEY in environment."
             )
 
+        # ── Explicit engine selection ────────────────────────────
+        if engine_name:
+            engine = self.get_engine(engine_name)
+            if not engine:
+                available = [e.NAME for e in self.engines]
+                return RecognitionResult(
+                    error=f"Engine '{engine_name}' not found. Available: {available}"
+                )
+            return engine.recognize(audio_bytes, filename)
+
+        # ── Auto: try in priority order ──────────────────────────
         last_error = None
 
         for engine in self.engines:

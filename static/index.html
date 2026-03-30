@@ -257,6 +257,52 @@
         /* Custom result panel */
         #customPractice { margin-top: 18px; }
 
+        /* ── Engine selector ──────────────────────────────────── */
+        .engine-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 22px;
+            flex-wrap: wrap;
+        }
+        .engine-bar label {
+            color: #aaa;
+            font-size: .85rem;
+        }
+        .engine-select {
+            padding: 7px 14px;
+            border-radius: 20px;
+            border: 2px solid #555;
+            background: rgba(255,255,255,.06);
+            color: #fff;
+            font-size: .9rem;
+            cursor: pointer;
+            outline: none;
+            transition: border-color .3s;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23aaa' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
+        }
+        .engine-select:hover, .engine-select:focus { border-color: #f093fb; }
+        .engine-select option { background: #24243e; color: #fff; }
+        .engine-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: .7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+        }
+        .engine-badge.sarvam    { background: rgba(76,175,80,.2); color: #69f0ae; }
+        .engine-badge.google-cloud { background: rgba(33,150,243,.2); color: #64b5f6; }
+        .engine-badge.free-google  { background: rgba(255,152,0,.2); color: #ffb74d; }
+        .engine-badge.auto      { background: rgba(240,147,251,.2); color: #f093fb; }
+
         @media (max-width: 600px) {
             .letter-grid { grid-template-columns: repeat(auto-fill, minmax(54px,1fr)); gap: 7px; }
             .letter-card { font-size: 1.3rem; }
@@ -271,6 +317,15 @@
 <div class="container">
     <h1>Telugu Pronunciation Checker</h1>
     <p class="subtitle">Pick a letter from the grid — or write your own and check pronunciation</p>
+
+    <!-- Engine Selector -->
+    <div class="engine-bar">
+        <label for="engineSelect">STT Engine:</label>
+        <select id="engineSelect" class="engine-select">
+            <option value="">Auto (best available)</option>
+        </select>
+        <span id="engineBadge" class="engine-badge auto">auto</span>
+    </div>
 
     <!-- Tabs -->
     <div class="tabs">
@@ -722,6 +777,7 @@ async function verifyPronunciation(audioBlob, expectedText, showResult, statusEl
     const form = new FormData();
     form.append('audio',    audioBlob, 'recording.webm');
     form.append('expected', expectedText);
+    if (selectedEngine) form.append('engine', selectedEngine);
 
     try {
         const res  = await fetch(`${API_BASE}/api/verify`, { method: 'POST', body: form });
@@ -767,7 +823,9 @@ function renderResult(data, box, icon, text, detail, fill, hint) {
     }
 
     const heard = data.recognized || 'Nothing detected';
-    detail.textContent = `Heard: "${heard}"  |  Expected: "${data.expected}"  |  Score: ${score}%`;
+    const engineUsed = data.engine ? ` | Engine: ${ENGINE_LABELS[data.engine] || data.engine}` : '';
+    const latency = data.latency_ms ? ` | ${data.latency_ms}ms` : '';
+    detail.textContent = `Heard: "${heard}"  |  Expected: "${data.expected}"  |  Score: ${score}%${engineUsed}${latency}`;
     if (data.reason) detail.textContent += `  |  ${data.reason}`;
 
     fill.style.width = `${score}%`;
@@ -775,10 +833,57 @@ function renderResult(data, box, icon, text, detail, fill, hint) {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// ENGINE SELECTOR
+// ──────────────────────────────────────────────────────────────────
+let selectedEngine = '';  // empty = auto
+
+const ENGINE_LABELS = {
+    'sarvam':       'Sarvam AI',
+    'google-cloud': 'Google Cloud',
+    'free-google':  'Free Google (Dev)',
+};
+
+async function loadEngines() {
+    try {
+        const res  = await fetch(`${API_BASE}/api/engines`);
+        const data = await res.json();
+        const sel  = document.getElementById('engineSelect');
+
+        data.engines.forEach(e => {
+            const opt   = document.createElement('option');
+            opt.value   = e.name;
+            opt.textContent = ENGINE_LABELS[e.name] || e.name;
+            if (!e.available) {
+                opt.disabled    = true;
+                opt.textContent += ' (not configured)';
+            }
+            sel.appendChild(opt);
+        });
+
+        sel.addEventListener('change', () => {
+            selectedEngine = sel.value;
+            updateEngineBadge();
+        });
+
+        updateEngineBadge();
+    } catch (err) {
+        console.error('Failed to load engines:', err);
+    }
+}
+
+function updateEngineBadge() {
+    const badge = document.getElementById('engineBadge');
+    const name  = selectedEngine || 'auto';
+    badge.textContent = ENGINE_LABELS[name] || name;
+    badge.className   = `engine-badge ${name}`;
+}
+
+// ──────────────────────────────────────────────────────────────────
 // INIT
 // ──────────────────────────────────────────────────────────────────
 buildVKB();
 loadLetters('vowels');
+loadEngines();
 </script>
 </body>
 </html>

@@ -51,13 +51,19 @@ def index():
 @app.route("/api/health", methods=["GET"])
 def health():
     """Health check — shows which engines are configured."""
-    engines = []
-    for e in orchestrator.engines:
-        engines.append({"name": e.NAME, "available": e.available})
     return jsonify({
         "status": "ok",
-        "engines": engines,
-        "engine_count": len(engines),
+        "engines": orchestrator.list_engines(),
+        "engine_count": len(orchestrator.engines),
+    })
+
+
+@app.route("/api/engines", methods=["GET"])
+def list_engines():
+    """List available STT engines so the frontend can offer a selector."""
+    return jsonify({
+        "engines": orchestrator.list_engines(),
+        "default": orchestrator.engines[0].NAME if orchestrator.engines else None,
     })
 
 
@@ -94,9 +100,14 @@ def verify_pronunciation():
     if len(audio_bytes) < 100:
         return jsonify({"error": "Audio file too small — recording failed"}), 400
 
-    # ── Run STT ──────────────────────────────────────────────
+    # ── Run STT (optionally force a specific engine) ──────────
 
-    recognition = orchestrator.recognize(audio_bytes, audio_file.filename or "audio.webm")
+    preferred_engine = request.form.get("engine", "").strip() or None
+    recognition = orchestrator.recognize(
+        audio_bytes,
+        audio_file.filename or "audio.webm",
+        engine_name=preferred_engine,
+    )
 
     if not recognition.results:
         return jsonify({
