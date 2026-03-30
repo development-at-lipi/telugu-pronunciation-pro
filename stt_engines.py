@@ -49,17 +49,18 @@ class RecognitionResult:
 
 class SarvamEngine:
     """
-    Sarvam AI saarika:v2.5 — purpose-built for Indian languages.
+    Sarvam AI saaras:v3 — purpose-built for Indian languages.
 
     Key advantages:
       - Accepts WebM directly (no ffmpeg conversion!)
       - Native Telugu (te-IN) support
       - <250 ms median latency
       - INR 30/hour pricing (charged per second)
+      - verbatim mode: exact word-for-word, no normalization (best for pronunciation)
 
     API: POST https://api.sarvam.ai/speech-to-text
     Auth: api-subscription-key header
-    Body: multipart/form-data (file + model + language_code)
+    Body: multipart/form-data (file + model + language_code + mode)
     """
 
     NAME = "sarvam"
@@ -70,6 +71,7 @@ class SarvamEngine:
         self.api_key = Config.SARVAM_API_KEY
         self.api_url = Config.SARVAM_API_URL
         self.model = Config.SARVAM_MODEL
+        self.mode = Config.SARVAM_MODE
 
     @property
     def available(self) -> bool:
@@ -91,6 +93,7 @@ class SarvamEngine:
                     data={
                         "model": self.model,
                         "language_code": "te-IN",
+                        "mode": self.mode,
                     },
                     timeout=self.TIMEOUT,
                 )
@@ -557,7 +560,7 @@ class STTOrchestrator:
         sarvam = SarvamEngine()
         if sarvam.available:
             self.engines.append(sarvam)
-            logger.info("STT engine registered: Sarvam AI (saarika:v2.5)")
+            logger.info("STT engine registered: Sarvam AI (saaras:v3 / verbatim)")
 
         google_key = GoogleAPIKeyEngine()
         if google_key.available:

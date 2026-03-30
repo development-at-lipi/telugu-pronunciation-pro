@@ -11,7 +11,8 @@ class Config:
     # ── Sarvam AI ────────────────────────────────────────────────
     SARVAM_API_KEY: str = os.getenv("SARVAM_API_KEY", "")
     SARVAM_API_URL: str = "https://api.sarvam.ai/speech-to-text"
-    SARVAM_MODEL: str = "saarika:v2.5"
+    SARVAM_MODEL: str = "saaras:v3"
+    SARVAM_MODE: str = "verbatim"
 
     # ── Google Cloud STT (V2 — service account) ───────────────────
     GOOGLE_CLOUD_PROJECT: str = os.getenv("GOOGLE_CLOUD_PROJECT", "")
