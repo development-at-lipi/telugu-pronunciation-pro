@@ -327,6 +327,53 @@
         /* Custom result panel */
         #customPractice { margin-top: 18px; }
 
+        /* ── Backend selector ────────────────────────────────── */
+        .backend-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .backend-bar label { color: #aaa; font-size: .8rem; }
+        .backend-toggle {
+            display: flex;
+            border: 2px solid #555;
+            border-radius: 22px;
+            overflow: hidden;
+        }
+        .backend-btn {
+            padding: 7px 18px;
+            background: transparent;
+            border: none;
+            color: #aaa;
+            font-size: .85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .25s;
+        }
+        .backend-btn.active {
+            background: linear-gradient(90deg, #f093fb, #f5576c);
+            color: #fff;
+        }
+        .backend-btn:not(.active):hover { color: #f093fb; }
+        .backend-note {
+            font-size: .75rem;
+            color: #666;
+            text-align: center;
+            margin-bottom: 18px;
+        }
+        .backend-note .lipi-badge {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 10px;
+            background: rgba(240,147,251,.15);
+            color: #f093fb;
+            font-weight: 700;
+            font-size: .72rem;
+        }
+
         /* ── Engine selector ──────────────────────────────────── */
         .engine-bar {
             display: flex;
@@ -373,6 +420,7 @@
         .engine-badge.google-cloud { background: rgba(33,150,243,.2); color: #64b5f6; }
         .engine-badge.free-google  { background: rgba(255,152,0,.2); color: #ffb74d; }
         .engine-badge.auto      { background: rgba(240,147,251,.2); color: #f093fb; }
+        .engine-badge.lipi      { background: rgba(240,147,251,.25); color: #f093fb; border: 1px solid rgba(240,147,251,.4); }
 
         @media (max-width: 600px) {
             .letter-grid { grid-template-columns: repeat(auto-fill, minmax(54px,1fr)); gap: 7px; }
@@ -389,8 +437,18 @@
     <h1>Telugu Pronunciation Checker</h1>
     <p class="subtitle">Pick a letter from the grid — or write your own and check pronunciation</p>
 
+    <!-- Backend Selector -->
+    <div class="backend-bar">
+        <label>API Backend:</label>
+        <div class="backend-toggle">
+            <button class="backend-btn active" id="btnSelf" onclick="setBackend('self')">Self-Hosted</button>
+            <button class="backend-btn" id="btnLipi" onclick="setBackend('lipi')">Lipi API</button>
+        </div>
+    </div>
+    <p class="backend-note" id="backendNote">Using local server</p>
+
     <!-- Engine Selector -->
-    <div class="engine-bar">
+    <div class="engine-bar" id="engineBar">
         <label for="engineSelect">STT Engine:</label>
         <select id="engineSelect" class="engine-select">
             <option value="">Auto (best available)</option>
@@ -492,6 +550,35 @@
 </div><!-- /container -->
 
 <script>
+// ──────────────────────────────────────────────────────────────────
+// BACKEND CONFIG
+// ──────────────────────────────────────────────────────────────────
+const LIPI_API_URL = 'https://api-dev.kids.lipi.game/v1/utilities/pronunciation/verify';
+let currentBackend = 'self'; // 'self' | 'lipi'
+
+const LETTERS_DATA = {
+    vowels:     ["అ","ఆ","ఇ","ఈ","ఉ","ఊ","ఋ","ఎ","ఏ","ఐ","ఒ","ఓ","ఔ","అం","అః","ౠ"],
+    consonants: ["క","ఖ","గ","ఘ","ఙ","చ","ఛ","జ","ఝ","ఞ","ట","ఠ","డ","ఢ","ణ","త","థ","ద","ధ","న","ప","ఫ","బ","భ","మ","య","ర","ల","వ","శ","ష","స","హ","ళ","క్ష","ఱ"],
+    words:      ["అమ్మ","నాన్న","ఇల్లు","పాలు","నీరు","పువ్వు","చెట్టు","పక్షి","ఆకాశం","భూమి"],
+};
+
+function setBackend(backend) {
+    currentBackend = backend;
+    document.getElementById('btnSelf').classList.toggle('active', backend === 'self');
+    document.getElementById('btnLipi').classList.toggle('active', backend === 'lipi');
+    document.getElementById('engineBar').style.display = backend === 'self' ? '' : 'none';
+
+    const note = document.getElementById('backendNote');
+    if (backend === 'lipi') {
+        note.innerHTML = 'Using <span class="lipi-badge">Lipi API</span> — api-dev.kids.lipi.game';
+    } else {
+        note.textContent = 'Using local server';
+    }
+
+    // Reload current grid with (possibly hardcoded) data
+    loadLetters(currentCategory);
+}
+
 // ──────────────────────────────────────────────────────────────────
 // VIRTUAL KEYBOARD DATA
 // ──────────────────────────────────────────────────────────────────
@@ -681,6 +768,14 @@ async function loadLetters(category) {
     currentCategory  = category;
     completedLetters = new Set();
     practiceSection.classList.remove('visible');
+
+    if (currentBackend === 'lipi') {
+        letters = LETTERS_DATA[category] || [];
+        renderGrid();
+        updateProgress();
+        return;
+    }
+
     try {
         const res  = await fetch(`${API_BASE}/api/letters?category=${category}`);
         const data = await res.json();
@@ -852,23 +947,47 @@ async function verifyPronunciation(audioBlob, expectedText, showResult, statusEl
     const form = new FormData();
     form.append('audio',    audioBlob, 'recording.webm');
     form.append('expected', expectedText);
-    if (selectedEngine) form.append('engine', selectedEngine);
 
     try {
-        const res  = await fetch(`${API_BASE}/api/verify`, { method: 'POST', body: form });
-        const data = await res.json();
+        let result;
+
+        if (currentBackend === 'lipi') {
+            form.append('lang', 'te');
+            const res  = await fetch(LIPI_API_URL, { method: 'POST', body: form });
+            const json = await res.json();
+
+            if (!json.success) {
+                showResult({ pass: false, expected: expectedText, recognized: null, score: 0, reason: json.error || 'API error' });
+                statusEl.textContent = ''; statusEl.className = 'status';
+                return;
+            }
+            const d = json.data;
+            result = {
+                pass:       d.pass,
+                expected:   d.expected,
+                recognized: d.recognized,
+                score:      d.pass ? 100 : 20,
+                engine:     'lipi',
+                reason:     d.message,
+                analytics:  null,
+                alternatives: [],
+            };
+        } else {
+            if (selectedEngine) form.append('engine', selectedEngine);
+            const res  = await fetch(`${API_BASE}/api/verify`, { method: 'POST', body: form });
+            const data = await res.json();
+
+            if (data.error && !data.recognized) {
+                showResult({ pass: false, expected: expectedText, recognized: null, score: 0, reason: data.error });
+                statusEl.textContent = ''; statusEl.className = 'status';
+                return;
+            }
+            result = data;
+        }
+
         statusEl.textContent = '';
         statusEl.className   = 'status';
-
-        if (data.error && !data.recognized) {
-            // Can't hear — show fail
-            showResult({
-                pass: false, expected: expectedText, recognized: null,
-                score: 0, reason: data.error
-            });
-            return;
-        }
-        showResult(data);
+        showResult(result);
     } catch (err) {
         statusEl.textContent = '⚠️ Network error. Check your connection.';
         statusEl.className   = 'status';
@@ -979,6 +1098,7 @@ const ENGINE_LABELS = {
     'google-stt':   'Google STT',
     'google-cloud': 'Google Cloud (V2)',
     'free-google':  'Free Google (Dev)',
+    'lipi':         'Lipi API',
 };
 
 async function loadEngines() {
